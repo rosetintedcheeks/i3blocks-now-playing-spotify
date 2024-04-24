@@ -61,16 +61,16 @@ handle_response() {
 	response_code=$(< $SPOTIFY_RESPONSE_CODE)
 	case $response_code in
 		"401")
-				fetch_token
-				ACCESS_TOKEN_USER=$(< "$SPOTIFY_USER_TOKEN") fetch_currently_playing
-				;;
+			fetch_token
+			ACCESS_TOKEN_USER=$(< "$SPOTIFY_USER_TOKEN") fetch_currently_playing
+			;;
 		"204")
-				echo "Nothing playing"
-				exit
-				;;
+			echo "Nothing playing"
+			exit
+			;;
 		"429")
-				exit 1
-				;;
+			exit 1
+			;;
 		esac
 }
 
