@@ -30,7 +30,7 @@ fetch_token() {
 	fi
 	local scopes="user-read-playback-state"
 	local code_verifier=
-	code_verifier=$(openssl rand -hex 127 | cut -c 1-127)
+	code_verifier=$(openssl rand -hex 63)
 	local code_challenge=
 	code_challenge=$(printf "%s" "$code_verifier" | sha256sum -b | xxd -p -r | base64 | tr '/+' '_-' | tr -d '=')
 	xdg-open "https://accounts.spotify.com/authorize?
