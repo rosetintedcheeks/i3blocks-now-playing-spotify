@@ -116,7 +116,9 @@ output() {
 main() {
 	trap "exit 1" SIGINT
 	if [[ ! -d "$CONFIG_DIR" ]]; then
-		mkdir -p "$CONFIG_DIR"
+		# shellcheck disable=2174
+		# intended behavior
+		mkdir -p -m 700 "$CONFIG_DIR"
 	fi
 
 	sanity_checks
