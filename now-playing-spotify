@@ -1,0 +1,132 @@
+#!/bin/bash
+
+CONFIG_DIR="$HOME/.config/now-playing-spotify"
+CLIENT_ID="d8de2d28d17842439f052a5dc14c7126"
+SPOTIFY_USER_CODE="/tmp/spotify-user.code"
+SPOTIFY_USER_TOKEN="$CONFIG_DIR/spotify-user.token"
+REDIRECT_URI="http://localhost:9999"
+SPOTIFY_RESPONSE="/tmp/spotify-response"
+SPOTIFY_RESPONSE_CODE="/tmp/spotify-response-code"
+SPOTIFY_USER_REFRESH_TOKEN="$CONFIG_DIR/spotify-user-refresh.token"
+
+
+refresh_token() {
+	curl -o- --no-progress-meter -w "%{stderr}%{http_code}" -X POST "https://accounts.spotify.com/api/token" \
+		-d "refresh_token=$(< "$SPOTIFY_USER_REFRESH_TOKEN")&grant_type=refresh_token&client_id=$CLIENT_ID" \
+		> "$SPOTIFY_RESPONSE" 2>"$SPOTIFY_RESPONSE_CODE"
+	if [[ $(< "$SPOTIFY_RESPONSE_CODE") != "200" ]]; then
+		echo "Couldn't refresh token" >&2
+		rm "$SPOTIFY_USER_TOKEN"
+		rm "$SPOTIFY_USER_REFRESH_TOKEN"
+		exit 1
+	fi
+	jq -r .access_token <"$SPOTIFY_RESPONSE" > "$SPOTIFY_USER_TOKEN"
+}
+
+fetch_token() {
+	if [[ -f $SPOTIFY_USER_REFRESH_TOKEN ]]; then
+		refresh_token
+		return
+	fi
+	local scopes="user-read-playback-state"
+	local code_verifier=
+	code_verifier=$(openssl rand -hex 127 | cut -c 1-127)
+	local code_challenge=
+	code_challenge=$(printf "%s" "$code_verifier" | sha256sum -b | xxd -p -r | base64 | tr '/+' '_-' | tr -d '=')
+	xdg-open "https://accounts.spotify.com/authorize?
+		client_id=$CLIENT_ID&
+		response_type=code&
+		redirect_uri=$REDIRECT_URI&
+		code_challenge_method=S256&
+		code_challenge=$code_challenge&
+		scope=$scopes"
+	printf 'HTTP/1.1 200 OK\n\n<h1>Authorization complete</h1><div>You may close this window</div>\n' | socat TCP-LISTEN:9999,reuseaddr STDIO | awk -F'[ =]' '$1 == "GET" {print $3}' > "$SPOTIFY_USER_CODE"
+	curl -o- --no-progress-meter -X POST "https://accounts.spotify.com/api/token" \
+		-H 'Content-Type: application/x-www-form-urlencoded' \
+		--data-ascii "code=$(< "$SPOTIFY_USER_CODE" tr -d '\n')&redirect_uri=$REDIRECT_URI&grant_type=authorization_code&client_id=$CLIENT_ID&code_verifier=$code_verifier" \
+		> "$SPOTIFY_RESPONSE"
+	jq .access_token < "$SPOTIFY_RESPONSE" | tr -d '"' > "$SPOTIFY_USER_TOKEN"
+	jq .refresh_token < "$SPOTIFY_RESPONSE" | tr -d '"' > "$SPOTIFY_USER_REFRESH_TOKEN"
+}
+
+fetch_currently_playing() {
+	curl --no-progress-meter -o- -w"%{stderr}%{http_code}" --request GET \
+		--url "https://api.spotify.com/v1/me/player" \
+		--header "Authorization: Bearer $ACCESS_TOKEN_USER" \
+		>$SPOTIFY_RESPONSE 2>$SPOTIFY_RESPONSE_CODE
+}
+
+handle_response() {
+	local response_code=
+	response_code=$(< $SPOTIFY_RESPONSE_CODE)
+	case $response_code in
+		"401")
+				fetch_token
+				ACCESS_TOKEN_USER=$(< "$SPOTIFY_USER_TOKEN") fetch_currently_playing
+				;;
+		"204")
+				echo "Nothing playing"
+				exit
+				;;
+		"429")
+				exit 1
+				;;
+		esac
+}
+
+sanity_checks() {
+	# make sure we don't have empty token files
+	if [[ -z $(< "$SPOTIFY_USER_TOKEN") ]]; then
+		rm "$SPOTIFY_USER_TOKEN"
+	fi
+
+	# make sure we don't have empty token files
+	if [[ -z $(< "$SPOTIFY_USER_REFRESH_TOKEN") ]]; then
+		rm "$SPOTIFY_USER_REFRESH_TOKEN"
+	fi
+
+	# fetch or refresh token if we need to
+	if [[ ! -f $SPOTIFY_USER_TOKEN ]]; then
+		fetch_token
+	fi
+}
+
+output() {
+	if [[ $(jq -r '.is_playing' < "$SPOTIFY_RESPONSE") == 'false' ]]; then
+		echo -n "⏸️" # pause emoji
+	else
+		echo -n "▶️" # play emoji
+	fi
+
+	echo -n " "
+
+	{
+		jq -r '.item.artists[].name' < $SPOTIFY_RESPONSE
+	} | {
+		awk 'BEGIN { ORS=", " } {print $0}'
+	} | {
+		sed 's/, $//g'
+	} | {
+		sed 's/$/ - /g'
+	}
+
+	jq -r '.item.name' < $SPOTIFY_RESPONSE
+}
+
+main() {
+	trap "exit 1" SIGINT
+	if [[ ! -d "$CONFIG_DIR" ]]; then
+		mkdir -p "$CONFIG_DIR"
+	fi
+
+	sanity_checks
+
+	ACCESS_TOKEN_USER=$(< "$SPOTIFY_USER_TOKEN")
+
+	fetch_currently_playing
+	handle_response
+
+	output
+}
+
+main "$@"
