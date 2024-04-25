@@ -92,13 +92,28 @@ sanity_checks() {
 	fi
 }
 
-output() {
-	if [[ $(jq -r '.is_playing' < "$SPOTIFY_RESPONSE") == 'false' ]]; then
-		echo -n "PAUSE - "
+get_attribute() {
+	jq -r "$1" < "$SPOTIFY_RESPONSE"
+}
+
+output_progress() {
+	local progress_ms=
+	progress_ms=$(get_attribute '.progress_ms')
+	local duration_ms=
+	duration_ms=$(get_attribute '.item.duration_ms')
+
+	local progress=$(("$progress_ms" / 1000))
+	local duration=$(("$duration_ms" / 1000))
+
+	if [[ $progress != 'null' ]]; then
+		printf '< %d:%02d / %d:%02d >' $(("$progress" / 60)) $(("$progress" % 60)) $(("$duration" / 60)) $(("$duration" % 60))
 	fi
 
+}
+
+output_track() {
 	{
-		jq -r '.item.artists[].name' < $SPOTIFY_RESPONSE
+		get_attribute '.item.artists[].name'
 	} | {
 		awk 'BEGIN { ORS=", " } {print $0}'
 	} | {
@@ -107,7 +122,20 @@ output() {
 		sed 's/$/ - /g'
 	}
 
-	jq -r '.item.name' < $SPOTIFY_RESPONSE
+	get_attribute '.item.name' | tr -d  '\n'
+}
+
+output() {
+	if [[ $(get_attribute '.is_playing') == 'false' ]]; then
+		echo -n "PAUSE - "
+	fi
+
+	output_track
+	echo -n '  '
+	output_progress
+
+	# need a newline at the end
+	echo ""
 }
 
 main() {
