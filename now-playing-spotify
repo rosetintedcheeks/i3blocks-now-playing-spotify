@@ -21,6 +21,7 @@ refresh_token() {
 		exit 1
 	fi
 	jq -r .access_token <"$SPOTIFY_RESPONSE" > "$SPOTIFY_USER_TOKEN"
+	jq -r .refresh_token <"$SPOTIFY_RESPONSE" > "$SPOTIFY_USER_REFRESH_TOKEN"
 }
 
 fetch_token() {
