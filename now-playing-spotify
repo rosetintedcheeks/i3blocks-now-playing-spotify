@@ -94,12 +94,8 @@ sanity_checks() {
 
 output() {
 	if [[ $(jq -r '.is_playing' < "$SPOTIFY_RESPONSE") == 'false' ]]; then
-		echo -n "⏸️" # pause emoji
-	else
-		echo -n "▶️" # play emoji
+		echo -n "PAUSE - "
 	fi
-
-	echo -n " "
 
 	{
 		jq -r '.item.artists[].name' < $SPOTIFY_RESPONSE
